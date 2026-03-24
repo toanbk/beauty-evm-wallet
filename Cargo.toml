@@ -1,0 +1,28 @@
+[package]
+name = "beauty-wallet"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bip39 = { version = "2.2", features = ["rand"] }
+coins-bip32 = "0.13"
+k256 = { version = "0.13", features = ["ecdsa"] }
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+rayon = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+indicatif = "0.17"
+ctrlc = "3"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
