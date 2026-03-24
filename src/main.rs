@@ -56,6 +56,20 @@ fn main() {
     let target_count = if continuous { usize::MAX } else { cli.count };
     let output_path = PathBuf::from(&cli.output);
 
+    // Backup existing output file if present
+    if output_path.exists() {
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let stem = output_path.file_stem().unwrap_or_default().to_string_lossy();
+        let ext = output_path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+        let parent = output_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let backup_path = parent.join(format!("{}.{}{}", stem, timestamp, ext));
+        if let Err(e) = std::fs::rename(&output_path, &backup_path) {
+            eprintln!("Warning: failed to backup {}: {}", output_path.display(), e);
+        } else {
+            println!("Backed up existing output to: {}", backup_path.display());
+        }
+    }
+
     // Startup info
     println!("Beauty Wallet Generator");
     println!("Suffix: {}", validated_suffix);
