@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Parser, Debug)]
 #[command(name = "beauty-wallet")]
+#[command(version)]
 #[command(about = "Generate Ethereum vanity wallet addresses matching a suffix pattern")]
 struct Cli {
     /// Hex suffix to match (e.g., "1988", "8888")
