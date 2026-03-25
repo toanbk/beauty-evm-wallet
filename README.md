@@ -1,68 +1,102 @@
-# beauty-wallet-address
+# Beauty Wallet
 
-A **vanity Ethereum address generator** written in Rust. It creates random BIP39 wallets on the standard derivation path and brute-forces in parallel until the **hex address (without `0x`)** ends with your chosen suffix.
+Ethereum vanity wallet address generator written in Rust. Brute-force generates BIP39 mnemonics on derivation path `m/44'/60'/0'/0/0` and checks for suffix matches using all CPU cores.
 
-## Features
+## Install
 
-- **Derivation path**: `m/44'/60'/0'/0/0` (common Ethereum HD path)
-- **Matching**: **suffix-only** match on the hex address (input is case-insensitive; normalized to lowercase)
-- **Parallelism**: multi-threaded attempts via [rayon](https://github.com/rayon-rs/rayon)
-- **Output**: JSON (mnemonic, address, private key, timestamp); incremental saves as matches are found
-- **Safety**: result file mode `0600` on Unix; atomic write via temp file + `rename`
-- **Existing output**: if the output path already exists, it is renamed with a timestamp before a new run
-
-## Requirements and build
-
-- [Rust](https://www.rust-lang.org/) (stable recommended, `edition = "2021"`)
+### From release (recommended)
 
 ```bash
-cargo build --release
+# Linux x86_64
+curl -L https://github.com/toanbk/beauty-evm-wallet/releases/latest/download/beauty-wallet-linux-x86_64 -o beauty-wallet
+chmod +x beauty-wallet && sudo mv beauty-wallet /usr/local/bin/
+
+# macOS Intel
+curl -L https://github.com/toanbk/beauty-evm-wallet/releases/latest/download/beauty-wallet-darwin-x86_64 -o beauty-wallet
+chmod +x beauty-wallet && sudo mv beauty-wallet /usr/local/bin/
+
+# macOS Apple Silicon
+curl -L https://github.com/toanbk/beauty-evm-wallet/releases/latest/download/beauty-wallet-darwin-aarch64 -o beauty-wallet
+chmod +x beauty-wallet && sudo mv beauty-wallet /usr/local/bin/
 ```
 
-The release binary is `target/release/beauty-wallet`.
+### From source
+
+```bash
+git clone https://github.com/toanbk/beauty-evm-wallet.git
+cd beauty-evm-wallet
+cargo build --release
+sudo cp target/release/beauty-wallet /usr/local/bin/
+```
 
 ## Usage
 
 ```bash
-# Find one address ending in 1988 (default count is 1)
-./target/release/beauty-wallet --suffix 1988
+# Find 1 wallet ending in "1988"
+beauty-wallet --suffix 1988
 
-# Find several matches
-./target/release/beauty-wallet --suffix 8888 --count 3
+# Find 3 wallets ending in "aa"
+beauty-wallet --suffix aa --count 3
 
-# Run until Ctrl+C
-./target/release/beauty-wallet --suffix abcd --continuous
+# Run continuously until Ctrl+C
+beauty-wallet --suffix 8888 --continuous
 
-# Custom output path and live attempt rate
-./target/release/beauty-wallet --suffix a --output ./my-wallets.json --verbose
+# Custom output file + verbose speed stats
+beauty-wallet --suffix 1988 --output my-wallets.json --verbose
+
+# Check version
+beauty-wallet --version
 ```
 
-### CLI options
+## CLI Options
 
-| Flag | Description |
-|------|-------------|
-| `-s`, `--suffix` | Hex suffix to match (required; max 40 hex characters) |
-| `-c`, `--count` | Stop after this many matches (default `1`) |
-| `--continuous` | Run until interrupted; cannot be used with `--count` |
-| `-o`, `--output` | JSON output path (default `beauty-wallet-results.json`) |
-| `-v`, `--verbose` | Show attempt count and attempts per second |
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-s, --suffix` | Hex suffix to match (required, max 40 chars) | — |
+| `-c, --count` | Number of wallets to find | 1 |
+| `--continuous` | Run until Ctrl+C (conflicts with --count) | false |
+| `-o, --output` | Output JSON file path | beauty-wallet-results.json |
+| `-v, --verbose` | Show live attempts/sec stats | false |
+| `--version` | Print version | — |
 
-`Ctrl+C` stops gracefully; wallets found up to that point are still written to the final JSON.
+## JSON Output
 
-## JSON output
+Results are saved with 0600 permissions:
 
-Each entry includes:
+```json
+[
+  {
+    "mnemonic": "word1 word2 ... word12",
+    "address": "0x...1988",
+    "private_key": "0x...",
+    "found_at": "2026-03-25T00:00:00Z"
+  }
+]
+```
 
-- `mnemonic`: 12-word BIP39 mnemonic
-- `address`: lowercase hex with `0x` prefix (not EIP-55 checksummed)
-- `private_key`: hex private key with `0x` prefix
-- `found_at`: UTC timestamp (RFC3339 string)
+If the output file already exists, it is automatically backed up with a timestamp before writing new results.
 
-**Warning:** The output file is full custody of any funds sent to those addresses. Store it offline; never commit it or paste it into chat.
+## Search Difficulty
 
-## Search difficulty
+Each extra hex digit multiplies expected attempts by 16x.
 
-Each extra **hex digit** in the suffix multiplies expected attempts by roughly **16**. Long suffixes become impractical quickly.
+| Suffix Length | Combinations | Est. Time (16-core) |
+|---------------|-------------|---------------------|
+| 1 char | 16 | instant |
+| 2 chars | 256 | instant |
+| 4 chars | 65,536 | < 1s |
+| 6 chars | 16.7M | ~2-3 min |
+| 8 chars | 4.3B | ~10 hours |
+
+## Security
+
+- Cryptographically secure randomness (OsRng via BIP39 crate)
+- Private keys only written to file, never printed to stdout
+- Output file permissions: 0600 (owner read/write only)
+- Atomic writes via temp file + rename (safe against Ctrl+C)
+- Standard BIP39 derivation path: `m/44'/60'/0'/0/0`
+
+**Warning:** The output file contains full custody keys. Store it securely, never commit it to git.
 
 ## Tests
 
@@ -70,12 +104,8 @@ Each extra **hex digit** in the suffix multiplies expected attempts by roughly *
 cargo test
 ```
 
-Integration tests invoke the real CLI with short suffixes (e.g. `a`) and may take a bit longer.
+13 tests: 7 unit (including known BIP39 vector test) + 6 integration.
 
 ## License
 
-There is no top-level `LICENSE` in this repository yet; add one before redistribution or commercial use if you need explicit terms.
-
-## Repository layout
-
-This repo also contains ClaudeKit / OpenCode agent configuration (`.claude/`, `.opencode/`). It is unrelated to the `beauty-wallet` binary at runtime.
+MIT
