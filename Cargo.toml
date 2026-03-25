@@ -1,12 +1,13 @@
 [package]
 name = "beauty-wallet"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
 bip39 = { version = "2.2", features = ["rand"] }
 coins-bip32 = "0.13"
 k256 = { version = "0.13", features = ["ecdsa"] }
+secp256k1 = { version = "0.30", features = ["global-context"] }
 tiny-keccak = { version = "2.0", features = ["keccak"] }
 rayon = "1"
 clap = { version = "4", features = ["derive"] }

@@ -102,13 +102,14 @@ fn main() {
     })
     .expect("Error setting Ctrl+C handler");
 
+    // Pre-compute suffix bytes for fast byte-level matching (no hex encoding in hot loop)
+    let (suffix_bytes, suffix_odd) = matcher::suffix_to_bytes(&validated_suffix);
+
     // Progress bar
     let pb = output::create_progress_bar(cli.verbose);
     pb.set_message(format!("Found 0/{}...", if continuous { "inf".to_string() } else { target_count.to_string() }));
 
     // Rayon parallel generation loop using par_bridge for prompt termination.
-    // par_bridge stops pulling from the iterator once should_stop is set,
-    // unlike (0..usize::MAX).into_par_iter() which pre-schedules all work.
     use rayon::prelude::*;
     std::iter::from_fn(|| {
         if state.should_stop.load(Ordering::Relaxed) {
@@ -123,7 +124,8 @@ fn main() {
             return;
         }
 
-        let wallet = match generator::generate_wallet() {
+        // Hot loop: generate raw bytes, no string allocations
+        let raw = match generator::generate_raw() {
             Ok(w) => w,
             Err(_) => return,
         };
@@ -131,13 +133,16 @@ fn main() {
         state.attempts.fetch_add(1, Ordering::Relaxed);
         pb.inc(1);
 
-        if matcher::matches_suffix(&wallet.address, &validated_suffix) {
+        // Byte-level suffix comparison (no hex encoding)
+        if matcher::matches_suffix_bytes(&raw.address, &suffix_bytes, suffix_odd) {
             // Double-check target not already reached by another thread
             if !continuous && state.found_count.load(Ordering::SeqCst) >= target_count {
                 return;
             }
 
-            let result = WalletResult::from_wallet_info(&wallet);
+            // Only now convert to strings (match is rare event)
+            let wallet_info = raw.to_wallet_info();
+            let result = WalletResult::from_wallet_info(&wallet_info);
 
             {
                 let mut results = state.results.lock().unwrap();
