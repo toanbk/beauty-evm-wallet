@@ -1,3 +1,4 @@
+mod bip32;
 mod generator;
 mod matcher;
 mod output;
@@ -32,6 +33,10 @@ struct Cli {
     /// Show live speed stats
     #[arg(short, long)]
     verbose: bool,
+
+    /// Address indices to check per mnemonic (amortizes PBKDF2 cost)
+    #[arg(long, default_value_t = 100)]
+    batch_size: u32,
 }
 
 struct SharedState {
@@ -56,16 +61,29 @@ fn main() {
     let continuous = cli.continuous;
     let target_count = if continuous { usize::MAX } else { cli.count };
     let output_path = PathBuf::from(&cli.output);
+    let batch_size = cli.batch_size.max(1);
 
     // Backup existing output file if present
     if output_path.exists() {
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let stem = output_path.file_stem().unwrap_or_default().to_string_lossy();
-        let ext = output_path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-        let parent = output_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let stem = output_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let ext = output_path
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+        let parent = output_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
         let backup_path = parent.join(format!("{}.{}{}", stem, timestamp, ext));
         if let Err(e) = std::fs::rename(&output_path, &backup_path) {
-            eprintln!("Warning: failed to backup {}: {}", output_path.display(), e);
+            eprintln!(
+                "Warning: failed to backup {}: {}",
+                output_path.display(),
+                e
+            );
         } else {
             println!("Backed up existing output to: {}", backup_path.display());
         }
@@ -83,6 +101,7 @@ fn main() {
         }
     );
     println!("Cores: {}", rayon::current_num_threads());
+    println!("Batch: {} addresses/mnemonic", batch_size);
     println!("Output: {}", output_path.display());
     println!("---");
 
@@ -102,14 +121,21 @@ fn main() {
     })
     .expect("Error setting Ctrl+C handler");
 
-    // Pre-compute suffix bytes for fast byte-level matching (no hex encoding in hot loop)
+    // Pre-compute suffix bytes for fast byte-level matching
     let (suffix_bytes, suffix_odd) = matcher::suffix_to_bytes(&validated_suffix);
 
     // Progress bar
     let pb = output::create_progress_bar(cli.verbose);
-    pb.set_message(format!("Found 0/{}...", if continuous { "inf".to_string() } else { target_count.to_string() }));
+    pb.set_message(format!(
+        "Found 0/{}...",
+        if continuous {
+            "inf".to_string()
+        } else {
+            target_count.to_string()
+        }
+    ));
 
-    // Rayon parallel generation loop using par_bridge for prompt termination.
+    // Rayon parallel batch generation loop
     use rayon::prelude::*;
     std::iter::from_fn(|| {
         if state.should_stop.load(Ordering::Relaxed) {
@@ -124,51 +150,61 @@ fn main() {
             return;
         }
 
-        // Hot loop: generate raw bytes, no string allocations
-        let raw = match generator::generate_raw() {
-            Ok(w) => w,
+        // Generate a batch of addresses from one mnemonic (amortizes PBKDF2)
+        let batch = match generator::generate_batch(batch_size) {
+            Ok(b) => b,
             Err(_) => return,
         };
 
-        state.attempts.fetch_add(1, Ordering::Relaxed);
-        pb.inc(1);
+        state
+            .attempts
+            .fetch_add(batch.len(), Ordering::Relaxed);
+        pb.inc(batch.len() as u64);
 
-        // Byte-level suffix comparison (no hex encoding)
-        if matcher::matches_suffix_bytes(&raw.address, &suffix_bytes, suffix_odd) {
-            // Double-check target not already reached by another thread
-            if !continuous && state.found_count.load(Ordering::SeqCst) >= target_count {
+        // Check each address in the batch for suffix match
+        for raw in &batch {
+            if state.should_stop.load(Ordering::Relaxed) {
                 return;
             }
 
-            // Only now convert to strings (match is rare event)
-            let wallet_info = raw.to_wallet_info();
-            let result = WalletResult::from_wallet_info(&wallet_info);
+            if matcher::matches_suffix_bytes(&raw.address, &suffix_bytes, suffix_odd) {
+                if !continuous && state.found_count.load(Ordering::SeqCst) >= target_count {
+                    return;
+                }
 
-            {
-                let mut results = state.results.lock().unwrap();
-                results.push(result.clone());
+                let wallet_info = raw.to_wallet_info();
+                let result = WalletResult::from_wallet_info(&wallet_info);
+
+                {
+                    let mut results = state.results.lock().unwrap();
+                    results.push(result.clone());
+                }
+
+                let found = state.found_count.fetch_add(1, Ordering::SeqCst) + 1;
+
+                output::print_found(&result, found - 1);
+
+                // Incremental save
+                {
+                    let results = state.results.lock().unwrap();
+                    let _ = output::save_results(&output_path, &results);
+                }
+
+                // Check if target reached (count mode)
+                if !continuous && found >= target_count {
+                    state.should_stop.store(true, Ordering::SeqCst);
+                }
+
+                pb.set_message(format!(
+                    "Found {}/{}",
+                    found,
+                    if continuous {
+                        "inf".to_string()
+                    } else {
+                        target_count.to_string()
+                    }
+                ));
             }
-
-            let found = state.found_count.fetch_add(1, Ordering::SeqCst) + 1;
-
-            output::print_found(&result, found - 1);
-
-            // Incremental save
-            {
-                let results = state.results.lock().unwrap();
-                let _ = output::save_results(&output_path, &results);
-            }
-
-            // Check if target reached (count mode)
-            if !continuous && found >= target_count {
-                state.should_stop.store(true, Ordering::SeqCst);
-            }
-
-            pb.set_message(format!(
-                "Found {}/{}",
-                found,
-                if continuous { "inf".to_string() } else { target_count.to_string() }
-            ));
         }
     });
 

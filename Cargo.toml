@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 bip39 = { version = "2.2", features = ["rand"] }
-coins-bip32 = "0.13"
-k256 = { version = "0.13", features = ["ecdsa"] }
+hmac = "0.12"
+sha2 = "0.10"
 secp256k1 = { version = "0.30", features = ["global-context"] }
 tiny-keccak = { version = "2.0", features = ["keccak"] }
 rayon = "1"

@@ -15,6 +15,7 @@ pub struct WalletResult {
     pub mnemonic: String,
     pub address: String,     // with 0x prefix
     pub private_key: String, // with 0x prefix
+    pub derivation_path: String,
     pub found_at: DateTime<Utc>,
 }
 
@@ -24,6 +25,7 @@ impl WalletResult {
             mnemonic: info.mnemonic.clone(),
             address: format!("0x{}", info.address),
             private_key: format!("0x{}", info.private_key),
+            derivation_path: format!("m/44'/60'/0'/0/{}", info.address_index),
             found_at: Utc::now(),
         }
     }

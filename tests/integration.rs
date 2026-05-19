@@ -144,6 +144,7 @@ fn test_output_json_structure() {
         assert!(result["mnemonic"].is_string(), "mnemonic field missing or not string");
         assert!(result["address"].is_string(), "address field missing or not string");
         assert!(result["private_key"].is_string(), "private_key field missing or not string");
+        assert!(result["derivation_path"].is_string(), "derivation_path field missing or not string");
         assert!(result["found_at"].is_string(), "found_at field missing or not string");
 
         // Verify address has 0x prefix
@@ -153,6 +154,10 @@ fn test_output_json_structure() {
         // Verify private_key has 0x prefix
         let privkey = result["private_key"].as_str().unwrap();
         assert!(privkey.starts_with("0x"), "Private key should start with 0x prefix");
+
+        // Verify derivation_path format
+        let path = result["derivation_path"].as_str().unwrap();
+        assert!(path.starts_with("m/44'/60'/0'/0/"), "Derivation path should start with m/44'/60'/0'/0/");
     }
 }
 
